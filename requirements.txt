@@ -1,0 +1,9 @@
+# Dependencias del microservicio simulador BG (versiones verificadas)
+fastapi==0.138.0
+uvicorn==0.49.0
+playwright==1.60.0
+pydantic==2.13.4
+
+# Notas:
+# - Tras instalar, hay que bajar el navegador:  playwright install chromium
+# - starlette / anyio / pydantic-core se instalan solos como dependencias.
