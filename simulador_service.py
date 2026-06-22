@@ -31,6 +31,7 @@ from contextlib import asynccontextmanager
 import random
 import asyncio
 import os
+import re
 import socket
 import subprocess
 from pathlib import Path
@@ -643,18 +644,14 @@ async def descargar_pdf(data: SimulacionInput):
         await asyncio.sleep(0.3)
         await monto_input.fill(str(int(data.monto)))
 
-        # 2) Plazo
-        await asyncio.sleep(random.uniform(1.0, 2.0))
+        # 2) Plazo (usar fill() de Playwright para correcta actualización del slider)
+        # IMPORTANTE: Usar selector específico porque hay un datalist con el mismo ID
+        await asyncio.sleep(random.uniform(2.0, 3.0))
         meses = _solo_meses_validos(data.meses)
-        await page.eval_on_selector(
-            "#meses",
-            """(el, v) => {
-                el.value = v;
-                el.dispatchEvent(new Event('input',  {bubbles: true}));
-                el.dispatchEvent(new Event('change', {bubbles: true}));
-            }""",
-            str(meses),
-        )
+        slider = page.locator("input#meses[type=range]")
+        await slider.fill(str(meses))
+        await asyncio.sleep(random.uniform(2.5, 3.5))  # Esperar a que se procese
+        print(f"✓ Slider configurado a {meses} meses usando fill()")
 
         # 3) Tipo de amortización
         await asyncio.sleep(random.uniform(1.5, 2.5))
@@ -1142,18 +1139,16 @@ async def generar_pdf(data: SimulacionInput):
         await asyncio.sleep(random.uniform(0.5, 1.0))
         await monto_input.fill(str(int(data.monto)))
 
+        # 2) Plazo (usar fill() de Playwright para correcta actualización del slider)
+        # IMPORTANTE: Usar selector específico porque hay un datalist con el mismo ID
         await asyncio.sleep(random.uniform(2.0, 3.0))
         meses = _solo_meses_validos(data.meses)
-        await page.eval_on_selector(
-            "#meses",
-            """(el, v) => {
-                el.value = v;
-                el.dispatchEvent(new Event('input',  {bubbles: true}));
-                el.dispatchEvent(new Event('change', {bubbles: true}));
-            }""",
-            str(meses),
-        )
+        slider = page.locator("input#meses[type=range]")
+        await slider.fill(str(meses))
+        await asyncio.sleep(random.uniform(2.5, 3.5))  # Esperar a que se procese
+        print(f"✓ Slider configurado a {meses} meses usando fill()")
 
+        # 3) Tipo de amortización
         await asyncio.sleep(random.uniform(2.0, 3.5))
         etiqueta = "Alemán" if data.amortizacion.lower().startswith("alem") else "Francés"
         boton_tipo = page.locator(f"button:has-text('{etiqueta}')")
@@ -1195,6 +1190,21 @@ async def generar_pdf(data: SimulacionInput):
         total_interes = await valor("Total de interés:")
         print(f"   Capital: {capital}, Interés: {total_interes}")
 
+        # Extraer tasa de interés nominal desde la página principal ANTES de abrir modal
+        tasa_nominal = "N/A"
+        try:
+            tasa_elem = page.locator("span.simuladorVehicular__cardTextSubtitle").first
+            tasa_text = await tasa_elem.inner_text()
+            # Extraer el porcentaje usando regex (ej: "15.6%")
+            match = re.search(r'(\d+\.?\d*%)', tasa_text)
+            if match:
+                tasa_nominal = match.group(1)
+                print(f"   ✓ Tasa nominal: {tasa_nominal}")
+            else:
+                print(f"   ⚠️ No se pudo extraer tasa de: {tasa_text[:50]}...")
+        except Exception as e:
+            print(f"   ⚠️ Error al extraer tasa: {e}")
+
         # Abrir modal SOLO para obtener datos de la tabla
         print("🔘 Haciendo click en 'Ver tabla de amortización'...")
         await asyncio.sleep(random.uniform(2.0, 3.0))
@@ -1215,16 +1225,17 @@ async def generar_pdf(data: SimulacionInput):
         modal_body = page.locator(".modalTable__body").first
 
         # Hacer scroll gradual hasta el final del modal para forzar renderizado de todas las filas
-        for i in range(10):  # Hacer 10 scrolls graduales
+        # Aumentado a 20 scrolls para asegurar que se cargan TODAS las filas en plazos largos (48-60 meses)
+        for i in range(20):  # Hacer 20 scrolls graduales
             await modal_body.evaluate("el => el.scrollTop = el.scrollHeight")
-            await asyncio.sleep(0.3)  # Esperar a que se rendericen nuevas filas
+            await asyncio.sleep(0.5)  # Esperar a que se rendericen nuevas filas
 
         print("✓ Scroll completado, esperando renderizado final...")
-        await asyncio.sleep(2.0)  # Esperar a que todas las filas estén renderizadas
+        await asyncio.sleep(3.0)  # Esperar a que todas las filas estén renderizadas
 
-        # Extraer datos de la tabla
+        # Extraer datos de la tabla (usar tbody para obtener solo las filas de datos)
         filas_datos = []
-        for tr in await page.locator("table tr").all():
+        for tr in await page.locator("table tbody tr").all():
             texto = await tr.inner_text()
             celdas = [c.strip() for c in texto.split("\t") if c.strip()]
             if celdas and celdas[0].isdigit():
@@ -1241,17 +1252,8 @@ async def generar_pdf(data: SimulacionInput):
 
         print(f"📋 Extraídas {len(filas_datos)} filas de datos de la tabla")
 
-        # Obtener datos del modal (más confiable que extraer de la página principal)
-        print("🔍 Extrayendo datos desde el modal...")
-
-        # Tasa de interés nominal
-        try:
-            tasa_element = await page.locator("text=/Tasa de interés nominal:/").locator("xpath=following-sibling::*[1]").first
-            tasa_nominal = await tasa_element.inner_text()
-            print(f"   Tasa nominal: {tasa_nominal}")
-        except Exception as e:
-            print(f"⚠️ No se pudo extraer tasa nominal: {e}")
-            tasa_nominal = "N/A"
+        # NOTA: La tasa nominal ya fue extraída de la página principal antes de abrir el modal
+        print("🔍 Extrayendo Total de interés desde el modal...")
 
         # Total de interés desde el modal (más confiable)
         try:
@@ -1590,20 +1592,25 @@ async def generar_excel(data: SimulacionInput):
         meses = _solo_meses_validos(data.meses)
         etiqueta = data.amortizacion.lower()
 
-        # 1) Monto
+        # IMPORTANTE: Primero hacer scroll a la sección del simulador
+        print("⬇️ Haciendo scroll a la sección del simulador...")
         monto_input = page.locator("input.multicredito__input").first
         await monto_input.scroll_into_view_if_needed()
-        await asyncio.sleep(random.uniform(1.0, 2.0))
+        await asyncio.sleep(random.uniform(2.0, 3.0))
+        print("✓ Scroll completado - sección visible")
+
+        # 1) Monto
         await monto_input.clear()
         await asyncio.sleep(random.uniform(0.5, 1.0))
         await monto_input.fill(str(int(data.monto)))
 
-        # 2) Plazo (se setea con JS porque es un slider)
+        # 2) Plazo (usar fill() de Playwright para correcta actualización del slider)
+        # IMPORTANTE: Usar selector específico porque hay un datalist con el mismo ID
         await asyncio.sleep(random.uniform(2.0, 3.0))
-        await page.eval_on_selector(
-            "#meses",
-            f"el => {{ el.value = {meses}; el.dispatchEvent(new Event('input', {{bubbles: true}})); el.dispatchEvent(new Event('change', {{bubbles: true}})); }}"
-        )
+        slider = page.locator("input#meses[type=range]")
+        await slider.fill(str(meses))
+        await asyncio.sleep(random.uniform(2.5, 3.5))  # Esperar a que se procese
+        print(f"✓ Slider configurado a {meses} meses usando fill()")
 
         # 3) Tipo de amortización
         await asyncio.sleep(random.uniform(1.5, 2.5))
@@ -1661,6 +1668,21 @@ async def generar_excel(data: SimulacionInput):
 
         print(f"   Capital: {capital}, Interés: {total_interes}, Solca: {impuesto_solca}, Seguros: {total_seguros}, Total a pagar: {total_pagar}")
 
+        # Extraer tasa de interés nominal desde la página principal ANTES de abrir modal
+        tasa_nominal = "N/A"
+        try:
+            tasa_elem = page.locator("span.simuladorVehicular__cardTextSubtitle").first
+            tasa_text = await tasa_elem.inner_text()
+            # Extraer el porcentaje usando regex (ej: "15.6%")
+            match = re.search(r'(\d+\.?\d*%)', tasa_text)
+            if match:
+                tasa_nominal = match.group(1)
+                print(f"   ✓ Tasa nominal: {tasa_nominal}")
+            else:
+                print(f"   ⚠️ No se pudo extraer tasa de: {tasa_text[:50]}...")
+        except Exception as e:
+            print(f"   ⚠️ Error al extraer tasa: {e}")
+
         # Click en Ver tabla
         print("🔘 Haciendo click en 'Ver tabla de amortización'...")
         await asyncio.sleep(random.uniform(1.0, 2.0))
@@ -1685,12 +1707,13 @@ async def generar_excel(data: SimulacionInput):
         modal_body = page.locator(".modalTable__body").first
 
         # Hacer scroll gradual hasta el final del modal para forzar renderizado de todas las filas
-        for i in range(10):  # Hacer 10 scrolls graduales
+        # Aumentado a 20 scrolls para asegurar que se cargan TODAS las filas en plazos largos (48-60 meses)
+        for i in range(20):  # Hacer 20 scrolls graduales
             await modal_body.evaluate("el => el.scrollTop = el.scrollHeight")
-            await asyncio.sleep(0.3)  # Esperar a que se rendericen nuevas filas
+            await asyncio.sleep(0.5)  # Esperar a que se rendericen nuevas filas
 
         print("✓ Scroll completado, esperando renderizado final...")
-        await asyncio.sleep(2.0)  # Esperar a que todas las filas estén renderizadas
+        await asyncio.sleep(3.0)  # Esperar a que todas las filas estén renderizadas
 
         # Extraer filas de la tabla
         filas = await page.query_selector_all('table tbody tr')
@@ -1717,17 +1740,8 @@ async def generar_excel(data: SimulacionInput):
 
         print(f"📋 Extraídas {len(filas_datos)} filas de datos de la tabla")
 
-        # Obtener datos del modal (más confiable que extraer de la página principal)
-        print("🔍 Extrayendo datos desde el modal...")
-
-        # Tasa de interés nominal
-        try:
-            tasa_element = await page.locator("text=/Tasa de interés nominal:/").locator("xpath=following-sibling::*[1]").first
-            tasa_nominal = await tasa_element.inner_text()
-            print(f"   Tasa nominal: {tasa_nominal}")
-        except Exception as e:
-            print(f"⚠️ No se pudo extraer tasa nominal: {e}")
-            tasa_nominal = "N/A"
+        # NOTA: La tasa nominal ya fue extraída de la página principal antes de abrir el modal
+        print("🔍 Extrayendo Total de interés desde el modal...")
 
         # Total de interés desde el modal (más confiable)
         try:
