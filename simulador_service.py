@@ -1209,6 +1209,19 @@ async def generar_pdf(data: SimulacionInput):
         print("✓ Tabla visible")
         await asyncio.sleep(1.0)
 
+        # IMPORTANTE: Hacer scroll dentro del modal para forzar renderizado de TODAS las filas
+        # El modal puede tener virtual scrolling que solo muestra las primeras 12 filas
+        print("🔄 Haciendo scroll dentro del modal para cargar todas las filas...")
+        modal_body = page.locator(".modalTable__body").first
+
+        # Hacer scroll gradual hasta el final del modal para forzar renderizado de todas las filas
+        for i in range(10):  # Hacer 10 scrolls graduales
+            await modal_body.evaluate("el => el.scrollTop = el.scrollHeight")
+            await asyncio.sleep(0.3)  # Esperar a que se rendericen nuevas filas
+
+        print("✓ Scroll completado, esperando renderizado final...")
+        await asyncio.sleep(2.0)  # Esperar a que todas las filas estén renderizadas
+
         # Extraer datos de la tabla
         filas_datos = []
         for tr in await page.locator("table tr").all():
@@ -1228,14 +1241,41 @@ async def generar_pdf(data: SimulacionInput):
 
         print(f"📋 Extraídas {len(filas_datos)} filas de datos de la tabla")
 
-        # Obtener tasa de interés del modal
-        print("🔍 Extrayendo tasa de interés nominal...")
+        # Obtener datos del modal (más confiable que extraer de la página principal)
+        print("🔍 Extrayendo datos desde el modal...")
+
+        # Tasa de interés nominal
         try:
-            tasa_nominal = await page.locator("text=/Tasa de interés nominal:/").locator("xpath=following-sibling::*[1]").inner_text()
+            tasa_element = await page.locator("text=/Tasa de interés nominal:/").locator("xpath=following-sibling::*[1]").first
+            tasa_nominal = await tasa_element.inner_text()
             print(f"   Tasa nominal: {tasa_nominal}")
         except Exception as e:
             print(f"⚠️ No se pudo extraer tasa nominal: {e}")
             tasa_nominal = "N/A"
+
+        # Total de interés desde el modal (más confiable)
+        try:
+            # Buscar en las filas del modal el campo "Total de interés"
+            modal_desc_rows = await page.locator('.descriptionTable__row').all()
+            total_interes_modal = None
+
+            for row in modal_desc_rows:
+                text = await row.inner_text()
+                if "Total de interés" in text or "Total de interés:" in text:
+                    # Extraer el valor (segundo elemento)
+                    ps = await row.locator('p').all()
+                    if len(ps) >= 2:
+                        total_interes_modal = await ps[1].inner_text()
+                        print(f"   Total de interés (desde modal): {total_interes_modal}")
+                        break
+
+            # Si se encontró en el modal, actualizar la variable
+            if total_interes_modal:
+                total_interes = total_interes_modal
+            else:
+                print(f"⚠️ Total de interés no encontrado en modal, usando valor de página principal: {total_interes}")
+        except Exception as e:
+            print(f"⚠️ Error al extraer Total de interés desde modal: {e}. Usando valor de página principal")
 
         print("✓ Cerrando página original...")
         # Cerrar el browser page original
@@ -1639,6 +1679,19 @@ async def generar_excel(data: SimulacionInput):
         print("✓ Tabla visible")
         await asyncio.sleep(1.0)
 
+        # IMPORTANTE: Hacer scroll dentro del modal para forzar renderizado de TODAS las filas
+        # El modal puede tener virtual scrolling que solo muestra las primeras 12 filas
+        print("🔄 Haciendo scroll dentro del modal para cargar todas las filas...")
+        modal_body = page.locator(".modalTable__body").first
+
+        # Hacer scroll gradual hasta el final del modal para forzar renderizado de todas las filas
+        for i in range(10):  # Hacer 10 scrolls graduales
+            await modal_body.evaluate("el => el.scrollTop = el.scrollHeight")
+            await asyncio.sleep(0.3)  # Esperar a que se rendericen nuevas filas
+
+        print("✓ Scroll completado, esperando renderizado final...")
+        await asyncio.sleep(2.0)  # Esperar a que todas las filas estén renderizadas
+
         # Extraer filas de la tabla
         filas = await page.query_selector_all('table tbody tr')
         filas_datos = []
@@ -1664,14 +1717,41 @@ async def generar_excel(data: SimulacionInput):
 
         print(f"📋 Extraídas {len(filas_datos)} filas de datos de la tabla")
 
-        # Extraer tasa nominal
-        print("🔍 Extrayendo tasa de interés nominal...")
+        # Obtener datos del modal (más confiable que extraer de la página principal)
+        print("🔍 Extrayendo datos desde el modal...")
+
+        # Tasa de interés nominal
         try:
-            tasa_nominal = await page.locator("text=/Tasa de interés nominal:/").locator("xpath=following-sibling::*[1]").inner_text()
+            tasa_element = await page.locator("text=/Tasa de interés nominal:/").locator("xpath=following-sibling::*[1]").first
+            tasa_nominal = await tasa_element.inner_text()
             print(f"   Tasa nominal: {tasa_nominal}")
         except Exception as e:
             print(f"⚠️ No se pudo extraer tasa nominal: {e}")
             tasa_nominal = "N/A"
+
+        # Total de interés desde el modal (más confiable)
+        try:
+            # Buscar en las filas del modal el campo "Total de interés"
+            modal_desc_rows = await page.locator('.descriptionTable__row').all()
+            total_interes_modal = None
+
+            for row in modal_desc_rows:
+                text = await row.inner_text()
+                if "Total de interés" in text or "Total de interés:" in text:
+                    # Extraer el valor (segundo elemento)
+                    ps = await row.locator('p').all()
+                    if len(ps) >= 2:
+                        total_interes_modal = await ps[1].inner_text()
+                        print(f"   Total de interés (desde modal): {total_interes_modal}")
+                        break
+
+            # Si se encontró en el modal, actualizar la variable
+            if total_interes_modal:
+                total_interes = total_interes_modal
+            else:
+                print(f"⚠️ Total de interés no encontrado en modal, usando valor de página principal: {total_interes}")
+        except Exception as e:
+            print(f"⚠️ Error al extraer Total de interés desde modal: {e}. Usando valor de página principal")
 
         # Cerrar página original
         print("✓ Cerrando página original...")
