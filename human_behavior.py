@@ -27,7 +27,7 @@ async def move_mouse_naturally(page: Page, to_x: int, to_y: int, steps: int = 20
 
     for i in range(steps):
         t = i / steps
-        # Curva bezier cuadrática para movimiento natural
+        # Curva Bézier cuadrática para movimiento natural
         control_x = (from_x + to_x) / 2 + random.randint(-50, 50)
         control_y = (from_y + to_y) / 2 + random.randint(-50, 50)
 

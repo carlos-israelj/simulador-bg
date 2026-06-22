@@ -1,30 +1,18 @@
 """
-Microservicio local: expone el Simulador de Multicredito de Banco Guayaquil
-como un endpoint HTTP que Power Automate puede consumir.
+Servicio web FastAPI que expone el Simulador de Multicrédito de Banco Guayaquil
+mediante endpoints HTTP para consumo desde Power Automate.
 
-Patron: "scraper como servicio".
-    Power Automate --POST /simular--> este servicio --headless--> simulador BG
-    el servicio devuelve JSON limpio con cuota, detalle y tabla de amortizacion.
+Arquitectura:
+    - Patrón "scraper como servicio"
+    - La función de cálculo del banco está en un módulo JavaScript minificado
+    - No es accesible directamente desde window, requiere interacción con el DOM
+    - Playwright automatiza el navegador en modo headless para extraer resultados
 
-Por que asi: la funcion de calculo del banco vive dentro de un closure de modulo
-minificado (no esta en window), por lo que no se puede invocar directa. La via
-robusta es manejar el DOM en headless y leer el resultado que el propio banco calcula.
-
-Requisitos:
-    pip install fastapi uvicorn playwright
-    playwright install chromium
-
-Ejecutar:
-    uvicorn simulador_service:app --host 127.0.0.1 --port 8000
-
-IMPORTANTE - selectores: los marcados con (TODO VERIFICAR) hay que confirmarlos
-contra la pagina real. La forma mas rapida y fiable de obtenerlos es grabar la
-interaccion con el codegen de Playwright (no adivinar a mano):
-
-    playwright codegen https://www.bancoguayaquil.com/creditos/simuladores/
-
-Eso abre el navegador y va escribiendo el codigo con los selectores exactos
-mientras llenas el formulario. Pega aqui los que te genere.
+Endpoints principales:
+    POST /simular          - Ejecuta simulación y retorna JSON con datos
+    POST /generar-pdf      - Genera PDF de tabla de amortización
+    POST /generar-excel    - Genera Excel de tabla de amortización
+    GET  /resultado        - Obtiene última simulación ejecutada
 """
 
 from contextlib import asynccontextmanager
@@ -80,7 +68,7 @@ PROXY_LIST_FILE = os.getenv("PROXY_LIST_FILE", "proxies.txt")
 PDF_DIR = Path("/tmp/pdf_downloads")
 PDF_DIR.mkdir(exist_ok=True, parents=True)
 
-# Estado compartido: un solo navegador para todas las peticiones (mas rapido).
+# Estado compartido: un solo navegador para todas las peticiones (más rápido).
 _state = {}
 # Almacenamiento simple de resultados (última simulación)
 _ultimo_resultado = None
@@ -261,14 +249,14 @@ app = FastAPI(lifespan=lifespan, title="Simulador BG")
 
 
 class SimulacionInput(BaseModel):
-    monto: float = Field(..., ge=2000, le=50000)      # monto minimo: $2.000, maximo estimado: $50.000
-    meses: int = Field(..., ge=12, le=60)             # limites reales: 12-60, paso 12
+    monto: float = Field(..., ge=2000, le=50000)      # monto mínimo: $2.000, máximo estimado: $50.000
+    meses: int = Field(..., ge=12, le=60)             # límites reales: 12-60, paso 12
     amortizacion: str = Field(..., pattern="(?i)^(aleman|frances)$")
-    correo: str | None = None                          # se usa aguas abajo, no en el calculo
+    correo: str | None = None                          # se usa aguas abajo, no en el cálculo
 
 
 def _solo_meses_validos(m: int) -> int:
-    """El portal solo permite 12, 24, 36, 48, 60. Redondea al permitido mas cercano."""
+    """El portal solo permite 12, 24, 36, 48, 60. Redondea al permitido más cercano."""
     permitidos = [12, 24, 36, 48, 60]
     return min(permitidos, key=lambda x: abs(x - m))
 
@@ -385,7 +373,7 @@ async def simular(data: SimulacionInput):
         # cuando interactuemos con los elementos
         await asyncio.sleep(random.uniform(1.5, 2.5))  # Delay antes de interactuar
 
-        # 1) Monto del credito (input de texto con placeholder $0.00).
+        # 1) Monto del crédito (input de texto con placeholder $0.00).
         # Formatear monto sin comas (el campo acepta números simples)
         await asyncio.sleep(random.uniform(1.5, 3.0))  # Delay humano largo
         monto_input = page.locator("input.multicredito__input").first
@@ -448,7 +436,7 @@ async def simular(data: SimulacionInput):
         # Hacer scroll a los resultados
         await asyncio.sleep(random.uniform(1.0, 2.0))
 
-        # 5) Leer el detalle del credito.
+        # 5) Leer el detalle del crédito.
         #    Helper: dado el texto de una etiqueta, devuelve el monto de su fila.
         async def valor(etiqueta_texto: str) -> str:
             loc = page.locator(f"text={etiqueta_texto}").first
@@ -1896,5 +1884,5 @@ async def generar_excel(data: SimulacionInput):
 #
 # Descarga del PDF (paso 5 del ejercicio): el boton "Descargar Tabla" se puede
 # capturar con page.expect_download(). Se puede agregar otro endpoint /pdf que
-# guarde el archivo y devuelva la ruta. Pide ayuda para ese cuando llegues ahi.
+# guarde el archivo y devuelva la ruta. Pide ayuda para ese cuando llegues ahí.
 # -----------------------------------------------------------------------------

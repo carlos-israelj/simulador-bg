@@ -33,3 +33,6 @@ proxies.txt
 # OS
 .DS_Store
 Thumbs.db
+
+# Archivo README duplicado
+README (2).md
