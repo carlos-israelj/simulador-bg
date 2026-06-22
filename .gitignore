@@ -15,6 +15,12 @@ env/
 # Screenshots de debug
 debug_*.png
 
+# PDFs descargados
+pdf_downloads/
+
+# Proxies (contiene credenciales sensibles)
+proxies.txt
+
 # Logs
 *.log
 
